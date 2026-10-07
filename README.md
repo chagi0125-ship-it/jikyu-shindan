@@ -1,1 +1,1 @@
-# jily-shindan
+# jikyu-shindan
