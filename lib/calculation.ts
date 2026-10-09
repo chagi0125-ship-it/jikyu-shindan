@@ -1,23 +1,39 @@
-export const occupations=['会社員（正社員）','契約社員・派遣社員','パート・アルバイト','公務員','自営業・フリーランス','その他'] as const;
-export type Answers={age:number;occupation:string;income:number;hours:number;days:number;commute:number;overtime:number};
-export type Field=keyof Answers;
-export const limits={age:[15,100,1],income:[1,10000000,1],hours:[0.5,24,0.5],days:[1,31,1],commute:[0,360,1],overtime:[0,300,0.5]} as const;
-export function validateField(field:Field,value:unknown):string|null{
- if(field==='occupation')return occupations.includes(value as typeof occupations[number])?null:'職業・雇用形態を選んでください。';
- if(value===''||value===undefined||value===null)return '数値を入力してください。';
- const [min,max,step]=limits[field];const n=Number(value);
- if(!Number.isFinite(n)||n<min||n>max)return `${min.toLocaleString('ja-JP')}〜${max.toLocaleString('ja-JP')}の範囲で入力してください。`;
- return Math.abs(n/step-Math.round(n/step))>1e-6?`${step}刻みで入力してください。`:null;
+/** 仮のシミュレーション値。求人情報・公的統計・実際の査定には基づきません。 */
+export const areas = ['東京', '神奈川・千葉・埼玉', '大阪・京都・兵庫', '愛知', '福岡', 'その他・未定'] as const;
+export const industries = ['キャバクラ', 'ラウンジ', 'ガールズバー', 'セクキャバ', 'いちゃキャバ'] as const;
+export const experiences = ['未経験', '1年未満', '1年以上', 'ブランクあり'] as const;
+export type Answers = { age: number; area: string; industry: string; experience: string; days: number; hours: number };
+export type Field = keyof Answers;
+export const limits = { age: [18, 100, 1], days: [1, 7, 1], hours: [1, 8, 0.5] } as const;
+export const choices = { area: areas, industry: industries, experience: experiences };
+export function validateField(field: Field, value: unknown): string | null {
+  if (field in choices) return (choices[field as keyof typeof choices] as readonly unknown[]).includes(value) ? null : '選択肢から選んでください。';
+  if (value === '' || value === null || value === undefined) return '数値を入力してください。';
+  const n = Number(value);
+  if (field === 'age' && Number.isFinite(n) && n < 18) return 'この診断は18歳以上の方が対象です。18歳未満の方はご利用いただけません。';
+  const [min, max, step] = limits[field as keyof typeof limits];
+  if (!Number.isFinite(n) || n < min || n > max) return `${min}〜${max}の範囲で入力してください。`;
+  return Math.abs(n / step - Math.round(n / step)) > 1e-6 ? `${step}刻みで入力してください。` : null;
 }
-export function calculate(a:Answers){
- for(const field of ['age','occupation','income','hours','days','commute','overtime'] as Field[]){const error=validateField(field,a[field]);if(error)throw new Error(error);}
- const regularHours=a.hours*a.days,commuteHours=a.commute*2/60*a.days,extraHours=commuteHours+a.overtime,totalHours=regularHours+extraHours;
- if(totalHours>a.days*24)throw new Error('勤務・残業・通勤の合計が勤務日数×24時間を超えています。入力内容を見直してください。');
- return {regularHours,commuteHours,extraHours,totalHours,annualHours:totalHours*12,hourly:a.income/totalHours,regularHourly:a.income/regularHours,reduction:extraHours/totalHours*100};
+const baseRanges: Record<typeof industries[number], readonly [number, number]> = {
+  'キャバクラ': [2500, 4500], 'ラウンジ': [2500, 5000], 'ガールズバー': [1500, 2500],
+  'セクキャバ': [2500, 4500], 'いちゃキャバ': [2000, 4000],
+};
+const areaFactors: Record<typeof areas[number], number> = { '東京': 1.2, '神奈川・千葉・埼玉': 1.1, '大阪・京都・兵庫': 1.1, '愛知': 1.05, '福岡': 1, 'その他・未定': 1 };
+const experienceFactors: Record<typeof experiences[number], number> = { '未経験': 1, '1年未満': 1.05, '1年以上': 1.15, 'ブランクあり': 1 };
+export function calculate(a: Answers) {
+  for (const field of ['age', 'area', 'industry', 'experience', 'days', 'hours'] as Field[]) { const error = validateField(field, a[field]); if (error) throw new Error(error); }
+  const base = baseRanges[a.industry as typeof industries[number]];
+  const factor = areaFactors[a.area as typeof areas[number]] * experienceFactors[a.experience as typeof experiences[number]];
+  const hourlyMin = Math.round(base[0] * factor / 100) * 100;
+  const hourlyMax = Math.round(base[1] * factor / 100) * 100;
+  const monthlyHours = a.days * a.hours * 4;
+  return { hourlyMin, hourlyMax, monthlyHours, monthlyMin: hourlyMin * monthlyHours, monthlyMax: hourlyMax * monthlyHours };
 }
-export const format=(n:number,decimals=0)=>n.toLocaleString('ja-JP',{maximumFractionDigits:decimals});
-export function diagnosis(n:number){
- if(n>=3000)return {title:'時間あたりの収入は、かなり高水準です',body:'今の働き方で得られる時間の価値を確認できました。収入だけでなく、休息や仕事の満足度も大切にしましょう。'};
- if(n>=1500)return {title:'収入と時間のバランスを確かめてみましょう',body:'通勤や残業を減らせると、同じ月収でも実質時給は上がります。あなたにとって心地よい働き方を考えるきっかけに。'};
- return {title:'働き方を見直す余地があるかもしれません',body:'通勤や残業が時間あたりの収入に影響しているかもしれません。勤務条件や働く場所など、変えられるところから考えてみましょう。'};
+export const format = (n: number) => n.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
+export function recommendation(a: Answers) {
+  if (a.experience === '未経験') return { title: 'まずは少ない日数から、自分に合うお店探し', body: '仕事内容、接客の範囲、給与・控除、帰宅方法を事前に確認しましょう。希望する働き方と、無理なく続けられる勤務時間を相談するのがおすすめです。' };
+  if (a.experience === 'ブランクあり') return { title: '今の生活に合わせたペースで再スタート', body: '以前の経験に加え、現在の希望条件も整理しましょう。勤務日数や時間を調整できるお店を相談し、仕事内容や給与条件を改めて確認するのがおすすめです。' };
+  if (a.days <= 2) return { title: '週1〜2日の勤務で、生活とのバランスを', body: '本業や学業と両立しやすい日数を選んでいます。曜日やシフトの融通、終業時刻や帰宅方法まで確認しておくと、働き方を考えやすくなります。' };
+  return { title: '経験を活かしつつ、続けやすい条件を比較', body: '時給だけでなく、シフトの自由度、給与から引かれる費用、休みの取りやすさも比較しましょう。生活リズムに合ったお店探しを相談するのがおすすめです。' };
 }
